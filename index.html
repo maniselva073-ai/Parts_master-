@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mahendra Auto Mobile - Inventory Pro</title>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    
+    <style>
+        :root {
+            --bg: #0f172a;
+            --glass: rgba(255, 255, 255, 0.05);
+            --border: rgba(255, 255, 255, 0.1);
+            --text: #f1f5f9;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-blue: #0ea5e9;
+            --accent-gold: #f59e0b;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        .container { max-width: 1200px; margin: auto; }
+        .glass-card { background: var(--glass); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px; }
+        
+        .flex-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        
+        input { background: #1e293b; border: 1px solid var(--border); color: white; padding: 10px; border-radius: 6px; outline: none; transition: 0.3s; }
+        input:focus { border-color: var(--accent-blue); }
+        .search-bar { width: 100%; max-width: 350px; border-left: 4px solid var(--accent-blue); }
+
+        .btn { padding: 8px 16px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; color: white; transition: 0.3s; font-size: 12px; display: flex; align-items: center; gap: 5px; }
+        .btn-save { background: var(--accent-green); }
+        .btn-delete { background: var(--accent-red); }
+        .btn-blue { background: var(--accent-blue); }
+        .btn-gold { background: var(--accent-gold); }
+        .btn:hover { opacity: 0.8; transform: translateY(-1px); }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+        th { background: rgba(255,255,255,0.05); padding: 12px; text-align: left; color: #94a3b8; border-bottom: 2px solid var(--border); }
+        td { padding: 12px; border-bottom: 1px solid var(--border); }
+        tr:hover { background: rgba(255,255,255,0.02); cursor: pointer; }
+        
+        .progress-container { width: 100%; background: #1e293b; border-radius: 5px; margin: 10px 0; display: none; }
+        #progressBar { height: 10px; background: var(--accent-green); width: 0%; border-radius: 5px; transition: 0.3s; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="glass-card flex-header">
+        <h2 style="margin:0; color: var(--accent-blue);">Parts finder</h2>
+        <div style="display: flex; gap: 8px;">
+            <button class="btn btn-blue" onclick="location.reload()">🔄 Refresh</button>
+            <button class="btn btn-gold" id="loginBtn" onclick="handleAuth()">Admin Login</button>
+        </div>
+    </div>
+
+    <div id="adminPanel" class="glass-card" style="display:none;">
+        <h4 id="panelTitle" style="margin:0 0 15px 0; color: var(--accent-gold);">STOCK MANAGEMENT</h4>
+        <div class="progress-container" id="progCont"><div id="progressBar"></div></div>
+        <p id="uploadStatus" style="font-size: 12px;"></p>
+
+        <input type="hidden" id="editId">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px;">
+            <input type="text" id="pNo" placeholder="Part Number">
+            <input type="text" id="pName" placeholder="Part Description">
+            <input type="text" id="pMRP" placeholder="Price (MRP)">
+            <input type="text" id="pModel" placeholder="Bike Model">
+            <button id="mainActionBtn" class="btn btn-save" onclick="saveData()">💾 SAVE ITEM</button>
+            <button id="cancelBtn" class="btn btn-blue" style="display:none;" onclick="resetForm()">❌ CANCEL</button>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 15px;">
+            <button class="btn btn-blue" onclick="document.getElementById('xlFile').click()">📤 UPLOAD EXCEL (HUGE FILE OK)</button>
+            <button class="btn btn-delete" onclick="deleteSelectedItems()">🗑️ DELETE SELECTED</button>
+            <input type="file" id="xlFile" style="display:none;" onchange="importExcel(event)">
+        </div>
+    </div>
+
+    <div class="glass-card flex-header">
+        <input type="text" id="search" class="search-bar" placeholder="Search Part, Model or No..." onkeyup="filterData()">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <p style="margin:0; font-size: 13px;">Total Items: <span id="totalCount" style="color: var(--accent-green); font-weight: bold;">0</span></p>
+            <button class="btn btn-gold" onclick="downloadSelectedPDF()">📄 PDF EXPORT (SELECTED)</button>
+        </div>
+    </div>
+
+    <div class="glass-card" style="padding:0; overflow-x: auto; max-height: 600px;">
+        <table id="partsTable">
+            <thead>
+                <tr>
+                    <th style="width: 30px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)"></th>
+                    <th>Part No</th>
+                    <th>Part Description</th>
+                    <th>MRP (₹)</th>
+                    <th>Bike Model</th>
+                    <th id="adminHeader" style="display:none;">Action</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // Firebase Config
+    const firebaseConfig = {
+        apiKey: "AIzaSyDc7EEsksZ-PLPV-wkQG6y3v5pGz1e4X0",
+        authDomain: "mahendra-auto-mobile.firebaseapp.com",
+        databaseURL: "https://mahendra-auto-mobile-728bc-default-rtdb.firebaseio.com",
+        projectId: "mahendra-auto-mobile",
+        storageBucket: "mahendra-auto-mobile.appspot.com",
+        messagingSenderId: "852211421548",
+        appId: "1:812902966054:web:866e47614f10766b5f17e7"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    function handleAuth() {
+        if(sessionStorage.getItem("isManiAdmin")) {
+            sessionStorage.removeItem("isManiAdmin");
+            location.reload();
+        } else {
+            const user = prompt("Admin ID:");
+            const pass = prompt("Password:");
+            if(user === "Admin" && pass === "Mani@123") {
+                sessionStorage.setItem("isManiAdmin", "true");
+                location.reload();
+            } else { alert("Access Denied!"); }
+        }
+    }
+
+    const isAdmin = sessionStorage.getItem("isManiAdmin");
+    if(isAdmin) {
+        document.getElementById('adminPanel').style.display = 'block';
+        document.getElementById('adminHeader').style.display = 'table-cell';
+        document.getElementById('loginBtn').innerText = "Logout";
+    }
+
+    // --- Save Data ---
+    function saveData() {
+        const id = document.getElementById('editId').value;
+        const data = {
+            PartNo: document.getElementById('pNo').value,
+            PartName: document.getElementById('pName').value,
+            MRP: document.getElementById('pMRP').value,
+            BikeModel: document.getElementById('pModel').value
+        };
+        if(!data.PartNo || !data.PartName) return alert("Fill fields!");
+        if(id) {
+            db.ref('parts/' + id).update(data).then(() => { alert("Updated!"); resetForm(); });
+        } else {
+            db.ref('parts').push(data).then(() => { alert("Saved!"); resetForm(); });
+        }
+    }
+
+    function editItem(id, pNo, pName, pMRP, pModel) {
+        if(!isAdmin) return;
+        document.getElementById('editId').value = id;
+        document.getElementById('pNo').value = pNo;
+        document.getElementById('pName').value = pName;
+        document.getElementById('pMRP').value = pMRP;
+        document.getElementById('pModel').value = pModel;
+        document.getElementById('panelTitle').innerText = "EDITING ITEM";
+        document.getElementById('mainActionBtn').innerText = "🆙 UPDATE ITEM";
+        document.getElementById('cancelBtn').style.display = "block";
+        window.scrollTo(0,0);
+    }
+
+    function resetForm() {
+        document.getElementById('editId').value = "";
+        document.querySelectorAll('#adminPanel input[type="text"]').forEach(i => i.value = "");
+        document.getElementById('panelTitle').innerText = "STOCK MANAGEMENT";
+        document.getElementById('mainActionBtn').innerText = "💾 SAVE ITEM";
+        document.getElementById('cancelBtn').style.display = "none";
+    }
+
+    // --- Optimized Batch Excel Import ---
+    async function importExcel(e) {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            const data = new Uint8Array(evt.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            
+            const total = json.length;
+            const batchSize = 500; // Small chunks for stability
+            document.getElementById('progCont').style.display = 'block';
+            
+            for (let i = 0; i < total; i += batchSize) {
+                const chunk = json.slice(i, i + batchSize);
+                let updates = {};
+                
+                chunk.forEach(row => {
+                    const find = (p) => {
+                        const k = Object.keys(row).find(k => p.some(x => k.toLowerCase().includes(x)));
+                        return k ? row[k] : "-";
+                    };
+                    const newKey = db.ref('parts').push().key;
+                    updates['/parts/' + newKey] = {
+                        PartNo: String(find(['part', 'no', 'number'])),
+                        PartName: String(find(['desc', 'name', 'item'])),
+                        MRP: String(find(['mrp', 'price', 'rate'])),
+                        BikeModel: String(find(['model', 'bike', 'vehicle']))
+                    };
+                });
+
+                await db.ref().update(updates);
+                
+                // Update Progress
+                const progress = Math.round(((i + chunk.length) / total) * 100);
+                document.getElementById('progressBar').style.width = progress + '%';
+                document.getElementById('uploadStatus').innerText = `Uploading: ${i + chunk.length} / ${total} items...`;
+            }
+            alert("All items uploaded successfully!");
+            location.reload();
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    // --- Faster Data Loading ---
+    db.ref('parts').on('value', snap => {
+        const tbody = document.getElementById('tableBody');
+        let html = "";
+        let count = 0;
+        snap.forEach(child => {
+            const d = child.val();
+            count++;
+            // Display limit for browser performance, but search works on all
+            if(count < 2000) { 
+                html += `
+                <tr data-id="${child.key}" onclick="editItem('${child.key}', '${d.PartNo}', '${d.PartName}', '${d.MRP}', '${d.BikeModel}')">
+                    <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check"></td>
+                    <td style="color: var(--accent-blue); font-weight: bold;">${d.PartNo || '-'}</td>
+                    <td>${d.PartName || '-'}</td>
+                    <td style="color: var(--accent-green);">₹${d.MRP || '0'}</td>
+                    <td>${d.BikeModel || '-'}</td>
+                    ${isAdmin ? `<td style="color:orange; font-size:10px;">EDIT</td>` : ''}
+                </tr>`;
+            }
+        });
+        tbody.innerHTML = html;
+        document.getElementById('totalCount').innerText = count;
+    });
+
+    function filterData() {
+        const val = document.getElementById('search').value.toLowerCase();
+        const rows = document.querySelectorAll('#tableBody tr');
+        rows.forEach(r => {
+            r.style.display = r.innerText.toLowerCase().includes(val) ? "" : "none";
+        });
+    }
+
+    function toggleAll(src) { document.querySelectorAll('.row-check').forEach(c => c.checked = src.checked); }
+
+    function deleteSelectedItems() {
+        const selected = document.querySelectorAll('.row-check:checked');
+        if(selected.length === 0) return alert("Select items!");
+        if(confirm(`Delete ${selected.length} items?`)) {
+            selected.forEach(cb => db.ref('parts/' + cb.closest('tr').getAttribute('data-id')).remove());
+        }
+    }
+
+    function downloadSelectedPDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const rows = [];
+        document.querySelectorAll('.row-check:checked').forEach(c => {
+            const r = c.closest('tr').cells;
+            rows.push([r[1].innerText, r[2].innerText, r[3].innerText, r[4].innerText]);
+        });
+        if(rows.length === 0) return alert("Select items first!");
+        doc.text("MAHENDRA AUTO MOBILE - STOCK", 14, 15);
+        doc.autoTable({ head: [['Part No', 'Description', 'MRP', 'Model']], body: rows, startY: 25 });
+        doc.save("Stock_Report.pdf");
+    }
+</script>
+</body>
+</html>
