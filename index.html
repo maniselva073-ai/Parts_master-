@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bike Parts - Inventory Pro</title>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    
+    <style>
+        :root {
+            --bg: #0f172a;
+            --glass: rgba(255, 255, 255, 0.05);
+            --border: rgba(255, 255, 255, 0.1);
+            --text: #f1f5f9;
+            --accent-green: #10b981;
+            --accent-blue: #0ea5e9;
+            --accent-gold: #f59e0b;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        .container { max-width: 1200px; margin: auto; }
+        .glass-card { background: var(--glass); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px; }
+        
+        .flex-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        
+        input { background: #1e293b; border: 1px solid var(--border); color: white; padding: 12px; border-radius: 8px; outline: none; width: 100%; box-sizing: border-box; }
+        .search-bar { border-left: 5px solid var(--accent-blue); font-size: 16px; }
+
+        .btn { padding: 10px 18px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; color: white; transition: 0.2s; font-size: 13px; display: flex; align-items: center; gap: 5px; }
+        .btn-save { background: var(--accent-green); }
+        .btn-blue { background: var(--accent-blue); }
+        .btn-gold { background: var(--accent-gold); }
+        .btn-red { background: #ef4444; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { background: #1e293b; padding: 15px; text-align: left; color: #94a3b8; position: sticky; top: 0; z-index: 10; }
+        td { padding: 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
+        tr:hover { background: rgba(255,255,255,0.05); }
+        .selected-row { background: rgba(14, 165, 233, 0.15) !important; }
+
+        #progCont { display: none; background: #1e293b; height: 10px; border-radius: 5px; margin: 10px 0; }
+        #progressBar { height: 100%; background: var(--accent-green); width: 0%; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="glass-card flex-header">
+        <h2 style="margin:0; color: var(--accent-blue);">Bike Parts</h2>
+        <div style="display:flex; gap:10px;">
+            <button class="btn btn-gold" id="loginBtn" onclick="handleAuth()">Admin Login</button>
+        </div>
+    </div>
+
+    <div id="adminPanel" class="glass-card" style="display:none;">
+        <h4 id="panelTitle" style="color: var(--accent-gold); margin-top:0;">ADMIN CONTROL</h4>
+        <div id="progCont"><div id="progressBar"></div></div>
+        <p id="uploadStatus" style="font-size:12px;"></p>
+        
+        <input type="hidden" id="editId">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 15px;">
+            <input type="text" id="pNo" placeholder="Part Number">
+            <input type="text" id="pName" placeholder="Description">
+            <input type="text" id="pMRP" placeholder="MRP">
+            <input type="text" id="pModel" placeholder="Model">
+            <button class="btn btn-save" onclick="saveData()" id="mainBtn">💾 SAVE</button>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-blue" onclick="document.getElementById('xlFile').click()">📤 EXCEL UPLOAD</button>
+            <button class="btn btn-red" onclick="deleteSelected()">🗑️ DELETE SELECTED</button>
+            <input type="file" id="xlFile" style="display:none;" onchange="importExcel(event)">
+        </div>
+    </div>
+
+    <div class="glass-card flex-header">
+        <div style="flex:1; min-width:300px;">
+            <input type="text" id="search" class="search-bar" placeholder="Search 26,000+ parts..." oninput="filterData()">
+        </div>
+        <div style="display:flex; align-items:center; gap:15px; margin-left:10px;">
+            <button class="btn btn-gold" onclick="printSelected()">📄 PRINT SELECTED</button>
+            <p style="margin:0;">Total: <span id="totalCount" style="color:var(--accent-green); font-weight:bold;">0</span></p>
+        </div>
+    </div>
+
+    <div class="glass-card" style="padding:0; overflow-y: auto; max-height: 65vh;">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:40px;"><input type="checkbox" id="masterCheck" onclick="toggleAll(this)"></th>
+                    <th>Part No</th>
+                    <th>Description</th>
+                    <th>MRP</th>
+                    <th>Model</th>
+                    <th class="admin-col" style="display:none;">Action</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <tr><td colspan="6" style="text-align:center; padding:30px;">Loading database...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // Firebase Setup
+    const firebaseConfig = {
+        apiKey: "AIzaSyDc7EEsksZ-PLPV-wkQG6y3v5pGz1e4X0",
+        authDomain: "mahendra-auto-mobile.firebaseapp.com",
+        databaseURL: "https://mahendra-auto-mobile-728bc-default-rtdb.firebaseio.com",
+        projectId: "mahendra-auto-mobile",
+        storageBucket: "mahendra-auto-mobile.appspot.com",
+        messagingSenderId: "852211421548",
+        appId: "1:812902966054:web:866e47614f10766b5f17e7"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let masterData = [];
+    const isAdmin = sessionStorage.getItem("isManiAdmin");
+
+    if(isAdmin) {
+        document.getElementById('adminPanel').style.display = 'block';
+        document.querySelectorAll('.admin-col').forEach(el => el.style.display = 'table-cell');
+        document.getElementById('loginBtn').innerText = "Logout";
+    }
+
+    function handleAuth() {
+        if(isAdmin) { sessionStorage.removeItem("isManiAdmin"); location.reload(); }
+        else {
+            const p = prompt("Password:");
+            if(p === "Mani@123") { sessionStorage.setItem("isManiAdmin", "true"); location.reload(); }
+        }
+    }
+
+    // Load Data
+    db.ref('parts').on('value', snap => {
+        masterData = [];
+        snap.forEach(child => {
+            masterData.push({ id: child.key, ...child.val() });
+        });
+        document.getElementById('totalCount').innerText = masterData.length;
+        renderTable(masterData.slice(0, 100)); 
+    });
+
+    function renderTable(data) {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = data.map(d => `
+            <tr id="row-${d.id}" onclick="toggleRowSelection('${d.id}')">
+                <td onclick="event.stopPropagation()">
+                    <input type="checkbox" class="row-check" value="${d.id}">
+                </td>
+                <td style="color:var(--accent-blue); font-weight:bold;">${d.PartNo || '-'}</td>
+                <td>${d.PartName || '-'}</td>
+                <td style="color:var(--accent-green);">₹${d.MRP || '0'}</td>
+                <td>${d.BikeModel || '-'}</td>
+                ${isAdmin ? `<td class="admin-col"><button class="btn btn-blue" style="padding:4px 8px; font-size:10px;" onclick="event.stopPropagation(); editItem('${d.id}','${d.PartNo}','${d.PartName}','${d.MRP}','${d.BikeModel}')">EDIT</button></td>` : ''}
+            </tr>
+        `).join('');
+    }
+
+    function toggleRowSelection(id) {
+        const cb = document.querySelector(`.row-check[value="${id}"]`);
+        cb.checked = !cb.checked;
+        document.getElementById(`row-${id}`).classList.toggle('selected-row', cb.checked);
+    }
+
+    function toggleAll(src) {
+        document.querySelectorAll('.row-check').forEach(cb => {
+            cb.checked = src.checked;
+            cb.closest('tr').classList.toggle('selected-row', src.checked);
+        });
+    }
+
+    function filterData() {
+        const val = document.getElementById('search').value.toLowerCase();
+        if(!val) return renderTable(masterData.slice(0, 100));
+        const filtered = masterData.filter(item => 
+            (item.PartNo && item.PartNo.toLowerCase().includes(val)) ||
+            (item.PartName && item.PartName.toLowerCase().includes(val)) ||
+            (item.BikeModel && item.BikeModel.toLowerCase().includes(val))
+        );
+        renderTable(filtered.slice(0, 200));
+    }
+
+    // PDF Print Logic
+    function printSelected() {
+        const selectedIds = Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+        if(selectedIds.length === 0) return alert("Please select items first!");
+
+        const printData = masterData.filter(item => selectedIds.includes(item.id));
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        doc.setFontSize(16);
+        // 3. PDF Header மாற்றம்
+        doc.text("BIKE PARTS - INVENTORY LIST", 14, 15);
+        doc.setFontSize(10);
+        doc.text("Date: " + new Date().toLocaleDateString(), 14, 22);
+
+        const rows = printData.map(d => [d.PartNo, d.PartName, "Rs." + d.MRP, d.BikeModel]);
+        
+        doc.autoTable({
+            head: [['Part No', 'Description', 'Price', 'Model']],
+            body: rows,
+            startY: 28,
+            theme: 'grid',
+            headStyles: { fillColor: [14, 165, 233] }
+        });
+
+        // 4. PDF File Name மாற்றம்
+        doc.save("Bike_Parts_List.pdf");
+    }
+
+    // Admin Operations
+    async function importExcel(e) {
+        const file = e.target.files[0];
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        
+        document.getElementById('progCont').style.display = 'block';
+        const total = json.length;
+        const batchSize = 500;
+
+        for (let i = 0; i < total; i += batchSize) {
+            const chunk = json.slice(i, i + batchSize);
+            let updates = {};
+            chunk.forEach(row => {
+                const newKey = db.ref('parts').push().key;
+                updates['/parts/' + newKey] = {
+                    PartNo: String(row.PartNo || row['Part No'] || '-'),
+                    PartName: String(row.PartName || row['Description'] || '-'),
+                    MRP: String(row.MRP || row['Price'] || '0'),
+                    BikeModel: String(row.BikeModel || row['Model'] || '-')
+                };
+            });
+            await db.ref().update(updates);
+            let p = Math.round(((i + chunk.length) / total) * 100);
+            document.getElementById('progressBar').style.width = p + '%';
+            document.getElementById('uploadStatus').innerText = "Uploading... " + p + "%";
+        }
+        alert("Upload Successful!"); location.reload();
+    }
+
+    function deleteSelected() {
+        const selectedIds = Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+        if(selectedIds.length === 0) return alert("Select items to delete!");
+        if(confirm(`Delete ${selectedIds.length} items permanently?`)) {
+            selectedIds.forEach(id => db.ref('parts/' + id).remove());
+            alert("Deleted!");
+        }
+    }
+
+    function saveData() {
+        const id = document.getElementById('editId').value;
+        const payload = {
+            PartNo: document.getElementById('pNo').value,
+            PartName: document.getElementById('pName').value,
+            MRP: document.getElementById('pMRP').value,
+            BikeModel: document.getElementById('pModel').value
+        };
+        if(id) db.ref('parts/' + id).update(payload).then(() => { alert("Updated!"); resetAdminForm(); });
+        else db.ref('parts').push(payload).then(() => { alert("Saved!"); resetAdminForm(); });
+    }
+
+    function editItem(id, no, name, mrp, model) {
+        document.getElementById('editId').value = id;
+        document.getElementById('pNo').value = no;
+        document.getElementById('pName').value = name;
+        document.getElementById('pMRP').value = mrp;
+        document.getElementById('pModel').value = model;
+        document.getElementById('mainBtn').innerText = "🆙 UPDATE";
+        window.scrollTo(0,0);
+    }
+
+    function resetAdminForm() {
+        document.querySelectorAll('#adminPanel input').forEach(i => i.value = "");
+        document.getElementById('mainBtn').innerText = "💾 SAVE";
+    }
+</script>
+</body>
+</html>
