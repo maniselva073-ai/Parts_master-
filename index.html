@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bike Parts Pro </title>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg-dark: #020617;
+            --card-bg: #1e293b;
+            --accent-green: #10b981;
+            --accent-gold: #f59e0b;
+            --accent-red: #ef4444;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+        }
+
+        body { font-family: 'Inter', sans-serif; background: var(--bg-dark); color: var(--text-main); margin: 0; padding: 10px; }
+        .container { max-width: 1300px; margin: auto; }
+        
+        .header {
+            position: sticky; top: 0; z-index: 100;
+            background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding: 12px 20px; border-radius: 0 0 15px 15px;
+            margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
+        }
+
+        .stats-ribbon { display: flex; gap: 15px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 5px; }
+        .stat-card { background: var(--card-bg); padding: 15px; border-radius: 12px; flex: 1; min-width: 150px; border: 1px solid rgba(255,255,255,0.05); }
+        .stat-val { font-size: 20px; font-weight: bold; color: var(--primary); }
+        .stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; }
+
+        .glass-card { background: var(--card-bg); border-radius: 16px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.05); }
+
+        input { background: #0f172a; border: 1px solid #334155; color: white; padding: 12px; border-radius: 10px; width: 100%; box-sizing: border-box; }
+        input:focus { border-color: var(--primary); outline: none; }
+
+        .btn { padding: 10px 18px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 14px; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: var(--accent-green); color: white; }
+        .btn-danger { background: var(--accent-red); color: white; }
+        .btn-gold { background: var(--accent-gold); color: white; }
+        .btn-outline { background: transparent; border: 1px solid #334155; color: white; }
+
+        .table-container { overflow-x: auto; border-radius: 12px; background: #0f172a; max-height: 70vh; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th { position: sticky; top: 0; background: #1e293b; padding: 15px; text-align: left; color: var(--text-dim); font-size: 12px; text-transform: uppercase; z-index: 10; }
+        td { padding: 12px 15px; border-bottom: 1px solid #1e293b; }
+        tr:hover { background: rgba(255,255,255,0.03); }
+        .selected-row { background: rgba(99, 102, 241, 0.15) !important; }
+
+        .badge-stock { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; }
+        .low-stock { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        
+        #uploadStatusCont { display: none; margin-bottom: 15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; }
+        .progress-bar { height: 8px; background: #0f172a; border-radius: 10px; overflow: hidden; margin-top: 5px; }
+        .progress-fill { height: 100%; background: var(--primary); width: 0%; transition: 0.3s; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div style="display:flex; align-items:center; gap:12px;">
+        <i class="fas fa-motorcycle" style="font-size: 24px; color: var(--primary);"></i>
+        <h2 style="margin:0; letter-spacing: -1px;">BIKE PARTS <span style="color:var(--primary)">&#10024;</span></h2>
+    </div>
+    <div id="liveClock" style="color:var(--accent-gold); font-weight:bold; font-size: 13px;"></div>
+    <div style="display:flex; gap:10px;">
+        <button class="btn btn-outline" onclick="handleAuth()" id="loginBtn">
+            <i class="fas fa-user-shield"></i> <span id="logText">Admin Login</span>
+        </button>
+    </div>
+</div>
+
+<div class="container">
+    <div class="stats-ribbon">
+        <div class="stat-card">
+            <div class="stat-label">Total Parts</div>
+            <div class="stat-val" id="totalCount">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Inventory Models</div>
+            <div class="stat-val" id="modelCount">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Low Stock Items</div>
+            <div class="stat-val" id="lowStockCount" style="color:var(--accent-red)">0</div>
+        </div>
+    </div>
+
+    <div id="adminPanel" class="glass-card" style="display:none; border-left: 5px solid var(--accent-gold);">
+        <h3 style="margin-top:0; color:var(--accent-gold);"><i class="fas fa-lock"></i> ADMIN CONTROL</h3>
+        
+        <div id="uploadStatusCont">
+            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span>Uploading Data...</span><span id="statusPercent">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressBar"></div></div>
+        </div>
+
+        <input type="hidden" id="editId">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 15px;">
+            <input type="text" id="pNo" placeholder="Part Number">
+            <input type="text" id="pName" placeholder="Description">
+            <input type="number" id="pMRP" placeholder="Price ₹">
+            <input type="text" id="pModel" placeholder="Bike Model">
+            <input type="number" id="pStock" placeholder="Stock Qty" value="0">
+            <button class="btn btn-success" onclick="saveData()" id="mainBtn"><i class="fas fa-save"></i> SAVE</button>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; border-top:1px solid #334155; padding-top:15px;">
+            <button class="btn btn-primary" onclick="document.getElementById('xlFile').click()"><i class="fas fa-file-excel"></i> BULK IMPORT</button>
+            <button class="btn btn-danger" onclick="deleteSelected()"><i class="fas fa-trash"></i> DELETE</button>
+            <button class="btn btn-outline" onclick="resetForm()">CLEAR</button>
+            <input type="file" id="xlFile" style="display:none;" onchange="importExcel(event)">
+        </div>
+    </div>
+
+    <div class="glass-card" style="display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
+        <div style="flex:1; position:relative; min-width:300px;">
+            <i class="fas fa-search" style="position:absolute; left:15px; top:15px; color:var(--text-dim)"></i>
+            <input type="text" id="search" placeholder="Search by Number, Name, or Bike Model..." style="padding-left:45px;" oninput="filterData()">
+        </div>
+        <button class="btn btn-gold" onclick="printSelected()"><i class="fas fa-file-pdf"></i> PDF EXPORT</button>
+    </div>
+
+    <div class="glass-card" style="padding:0;">
+        <div class="table-container" id="scrollContainer">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:40px; text-align:center;"><input type="checkbox" onclick="toggleAll(this)"></th>
+                        <th>Part Details</th>
+                        <th>Model</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th id="adminHeader" style="display:none;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+            <div id="loadMoreTrigger" style="height: 20px;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyDc7EEsksZ-PLPV-wkQG6y3v5pGz1e4X0",
+        authDomain: "mahendra-auto-mobile.firebaseapp.com",
+        databaseURL: "https://mahendra-auto-mobile-728bc-default-rtdb.firebaseio.com",
+        projectId: "mahendra-auto-mobile",
+        storageBucket: "mahendra-auto-mobile.appspot.com",
+        messagingSenderId: "852211421548",
+        appId: "1:812902966054:web:866e47614f10766b5f17e7"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let masterData = [];
+    let filteredData = [];
+    let displayLimit = 50;
+    const isAdmin = sessionStorage.getItem("isManiAdmin") === "true";
+
+    // Dynamic Clock
+    function updateClock() {
+        document.getElementById('liveClock').innerHTML = `<i class="far fa-clock"></i> ` + new Date().toLocaleString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: 'short' });
+    }
+    setInterval(updateClock, 1000);
+
+    if(isAdmin) {
+        document.getElementById('adminPanel').style.display = 'block';
+        document.getElementById('adminHeader').style.display = 'table-cell';
+        document.getElementById('logText').innerText = "Logout";
+    }
+
+    function handleAuth() {
+        if(isAdmin) { sessionStorage.removeItem("isManiAdmin"); location.reload(); }
+        else {
+            const p = prompt("Admin Password:");
+            if(p === "Mani@123") { sessionStorage.setItem("isManiAdmin", "true"); location.reload(); }
+            else { alert("Access Denied"); }
+        }
+    }
+
+    // Load Data with Stats Calculation
+    db.ref('parts').on('value', snap => {
+        masterData = [];
+        let models = new Set();
+        let lowStock = 0;
+
+        snap.forEach(child => { 
+            const val = child.val();
+            masterData.push({ id: child.key, ...val }); 
+            if(val.BikeModel) models.add(val.BikeModel);
+            if(parseInt(val.Stock || 0) < 5) lowStock++;
+        });
+
+        document.getElementById('totalCount').innerText = masterData.length.toLocaleString();
+        document.getElementById('modelCount').innerText = models.size;
+        document.getElementById('lowStockCount').innerText = lowStock;
+        
+        filteredData = [...masterData];
+        renderTable();
+    });
+
+    // Virtual Scroll Logic
+    const observer = new IntersectionObserver(entries => {
+        if(entries[0].isIntersecting && displayLimit < filteredData.length) {
+            displayLimit += 50;
+            renderTable();
+        }
+    }, { root: document.getElementById('scrollContainer') });
+    observer.observe(document.getElementById('loadMoreTrigger'));
+
+    function renderTable() {
+        const tbody = document.getElementById('tableBody');
+        const searchVal = document.getElementById('search').value.toLowerCase();
+        const display = filteredData.slice(0, displayLimit);
+        
+        tbody.innerHTML = display.map(d => `
+            <tr id="row-${d.id}" onclick="toggleRowSelection('${d.id}')">
+                <td style="text-align:center" onclick="event.stopPropagation()">
+                    <input type="checkbox" class="row-check" value="${d.id}">
+                </td>
+                <td>
+                    <div style="font-weight:bold; color:var(--primary)">${highlight(d.PartNo, searchVal)}</div>
+                    <div style="font-size:12px; color:var(--text-dim)">${highlight(d.PartName, searchVal)}</div>
+                </td>
+                <td><span style="background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:6px; font-size:11px;">${highlight(d.BikeModel, searchVal)}</span></td>
+                <td style="color:var(--accent-green); font-weight:700;">₹${d.MRP || '0'}</td>
+                <td><span class="badge-stock ${parseInt(d.Stock) < 5 ? 'low-stock' : ''}">${d.Stock || 0}</span></td>
+                ${isAdmin ? `<td>
+                    <button class="edit-btn" style="background:#0ea5e9; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;" 
+                        onclick="event.stopPropagation(); editItem('${d.id}','${d.PartNo}','${d.PartName}','${d.MRP}','${d.BikeModel}','${d.Stock}')">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                </td>` : ''}
+            </tr>
+        `).join('');
+    }
+
+    function highlight(text, search) {
+        if(!search) return text || '-';
+        const str = String(text || '-');
+        return str.replace(new RegExp(search, 'gi'), m => `<mark style="background:var(--accent-gold); color:black;">${m}</mark>`);
+    }
+
+    function filterData() {
+        const val = document.getElementById('search').value.toLowerCase();
+        displayLimit = 50;
+        filteredData = masterData.filter(item => 
+            String(item.PartNo).toLowerCase().includes(val) || 
+            String(item.PartName).toLowerCase().includes(val) || 
+            String(item.BikeModel).toLowerCase().includes(val)
+        );
+        renderTable();
+    }
+
+    function saveData() {
+        const id = document.getElementById('editId').value;
+        const payload = { 
+            PartNo: document.getElementById('pNo').value, 
+            PartName: document.getElementById('pName').value, 
+            MRP: document.getElementById('pMRP').value, 
+            BikeModel: document.getElementById('pModel').value,
+            Stock: document.getElementById('pStock').value || 0
+        };
+        if(id) db.ref('parts/' + id).update(payload).then(() => { resetForm(); });
+        else db.ref('parts').push(payload).then(() => { resetForm(); });
+    }
+
+    function editItem(id, no, name, mrp, model, stock) {
+        document.getElementById('editId').value = id;
+        document.getElementById('pNo').value = no;
+        document.getElementById('pName').value = name;
+        document.getElementById('pMRP').value = mrp;
+        document.getElementById('pModel').value = model;
+        document.getElementById('pStock').value = stock || 0;
+        document.getElementById('mainBtn').innerHTML = '<i class="fas fa-sync"></i> UPDATE';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    async function importExcel(e) {
+        const file = e.target.files[0];
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        
+        if(!confirm(`Upload ${json.length} items to database?`)) return;
+
+        document.getElementById('uploadStatusCont').style.display = 'block';
+        const batchSize = 300;
+        for (let i = 0; i < json.length; i += batchSize) {
+            const chunk = json.slice(i, i + batchSize);
+            let updates = {};
+            chunk.forEach(row => {
+                const newKey = db.ref('parts').push().key;
+                updates['/parts/' + newKey] = { 
+                    PartNo: String(row.PartNo || row['Part No'] || '-'), 
+                    PartName: String(row.PartName || row['Description'] || '-'), 
+                    MRP: String(row.MRP || row['Price'] || '0'), 
+                    BikeModel: String(row.BikeModel || row['Model'] || '-'),
+                    Stock: String(row.Stock || 0)
+                };
+            });
+            await db.ref().update(updates);
+            let p = Math.round(((i + chunk.length) / json.length) * 100);
+            document.getElementById('progressBar').style.width = p + '%';
+            document.getElementById('statusPercent').innerText = p + '%';
+        }
+        alert("Bulk Import Finished!");
+        document.getElementById('uploadStatusCont').style.display = 'none';
+    }
+
+    function toggleRowSelection(id) {
+        const cb = document.querySelector(`.row-check[value="${id}"]`);
+        if(cb) { cb.checked = !cb.checked; document.getElementById(`row-${id}`).classList.toggle('selected-row', cb.checked); }
+    }
+
+    function toggleAll(src) {
+        document.querySelectorAll('.row-check').forEach(cb => { cb.checked = src.checked; cb.closest('tr').classList.toggle('selected-row', src.checked); });
+    }
+
+    function resetForm() { 
+        document.getElementById('editId').value = "";
+        document.querySelectorAll('#adminPanel input:not([type=file])').forEach(i => i.value = ""); 
+        document.getElementById('mainBtn').innerHTML = '<i class="fas fa-save"></i> SAVE'; 
+    }
+
+    function printSelected() {
+        const selectedIds = Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+        if(selectedIds.length === 0) return alert("Please select items first!");
+        const printData = masterData.filter(item => selectedIds.includes(item.id));
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        doc.setFontSize(18); doc.text("MAHENDRA AUTO MOBILE", 14, 15);
+        doc.setFontSize(10); doc.text("Generated on: " + new Date().toLocaleString(), 14, 22);
+        doc.autoTable({ head: [['Part No', 'Description', 'Model', 'Price']], body: printData.map(d => [d.PartNo, d.PartName, d.BikeModel, "Rs." + d.MRP]), startY: 28 });
+        doc.save("Mahendra_Parts_List.pdf");
+    }
+
+    function deleteSelected() {
+        const ids = Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+        if(ids.length === 0 || !confirm("Delete " + ids.length + " items?")) return;
+        ids.forEach(id => db.ref('parts/' + id).remove());
+    }
+</script>
+</body>
+</html>
